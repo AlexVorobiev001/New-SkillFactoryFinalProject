@@ -9,6 +9,10 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class CardService {
@@ -29,15 +33,26 @@ public class CardService {
     }
 
     public JsonNode putMoney(int userId, double amount) throws IOException {
-        String sql = "UPDATE Card SET balance = balance + ? WHERE userId = ?";
-        int rowsAffected = jdbcTemplate.update(sql, amount, userId);
+        try {
+            Double currentBalance = jdbcTemplate.queryForObject("SELECT balance FROM Card WHERE userId = ?", Double.class, userId);
 
-        if (rowsAffected == 0) {
-            return objectMapper.createObjectNode().put("error", "User not found");
+            if (currentBalance == null) {
+                return objectMapper.createObjectNode().put("error", "User not found");
+            }
+
+            int rowsAffected = jdbcTemplate.update("UPDATE Card SET balance = balance + ? WHERE userId = ?", amount, userId);
+            if (rowsAffected == 0) {
+                return objectMapper.createObjectNode().put("error", "Database error: Update failed");
+            }
+
+            int operationType = 1;
+            LocalDateTime now = LocalDateTime.now();
+            jdbcTemplate.update("INSERT INTO Operations (user_id, operation_type, amount, operation_date) VALUES (?, ?, ?, ?)", userId, operationType, (int) amount, now);
+
+            return objectMapper.createObjectNode().put("message", "Balance updated successfully");
+        } catch (DataAccessException e) {
+            return objectMapper.createObjectNode().put("error", "Database error: " + e.getMessage());
         }
-
-        return objectMapper.createObjectNode().put("message", "Balance updated successfully");
-
     }
 
     public JsonNode takeMoney(int userId, double amount) throws IOException {
@@ -52,23 +67,58 @@ public class CardService {
                 return objectMapper.createObjectNode().put("error", "Insufficient funds");
             }
 
-            String sql = "UPDATE Card SET balance = balance - ? WHERE userId = ?";
-            int rowsAffected = jdbcTemplate.update(sql, amount, userId);
-
+            int rowsAffected = jdbcTemplate.update("UPDATE Card SET balance = balance - ? WHERE userId = ?", amount, userId);
             if (rowsAffected == 0) {
                 return objectMapper.createObjectNode().put("error", "Database error: Update failed");
             }
 
+            int operationType = 2;
+            LocalDateTime now = LocalDateTime.now();
+            jdbcTemplate.update("INSERT INTO Operations (user_id, operation_type, amount, operation_date) VALUES (?, ?, ?, ?)", userId, operationType, (int) amount, now);
+
             return objectMapper.createObjectNode().put("message", "Money withdrawn successfully");
-        } catch (EmptyResultDataAccessException e) {
-            return objectMapper.createObjectNode().put("error", "User not found");
         } catch (DataAccessException e) {
-
             return objectMapper.createObjectNode().put("error", "Database error: " + e.getMessage());
+        }
+    }
 
+    public JsonNode getOperationList(int userId, LocalDateTime startDate, LocalDateTime endDate) throws IOException {
+        try {
+            String query = "SELECT operation_date, operation_type, amount FROM Operations WHERE user_id = ?";
+            if (startDate != null) {
+                query += " AND operation_date >= ?";
+            }
+            if (endDate != null) {
+                query += " AND operation_date <= ?";
+            }
+            query += " ORDER BY operation_date;";
+
+            List<Map<String, Object>> results;
+            if (startDate == null && endDate == null) {
+                results = jdbcTemplate.queryForList(query, userId);
+            } else if (endDate == null) {
+                results = jdbcTemplate.queryForList(query, userId, startDate);
+
+            } else if (startDate == null) {
+                results = jdbcTemplate.queryForList(query, userId, endDate);
+            } else {
+                results = jdbcTemplate.queryForList(query, userId, startDate, endDate);
+            }
+
+            if (results.isEmpty()) {
+                return objectMapper.createObjectNode().put("error", "No operations found for this user during this period.");
+            }
+
+            JsonNode operationsNode = objectMapper.valueToTree(results);
+            return operationsNode;
+        } catch (EmptyResultDataAccessException e) {
+            return objectMapper.createObjectNode().put("error", "No operations found for this user during this period.");
+        } catch (DataAccessException e) {
+            return objectMapper.createObjectNode().put("error", "Database error: " + e.getMessage());
         }
     }
 }
+
 
 
 
