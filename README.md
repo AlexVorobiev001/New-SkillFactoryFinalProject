@@ -1,4 +1,4 @@
-![Схема базы данных](https://github.com/AlexVorobiev001/New-SkillFactoryFinalProject/raw/master/https://drive.google.com/file/d/10CXurqdG7jZYmG86xSKtK2pkwfHYF3BM/view?usp=sharing/image.png)
+![Схема базы данных](https://github.com/AlexVorobiev001/New-SkillFactoryFinalProject/blob/main/image.png)
 
 Описание функциональности:
 Данный класс имитирует работу банкомата.
